@@ -1,6 +1,10 @@
 // BTB16 triac
 
-// #define DEBUG
+//#define DEBUG
+
+// #define USE_BUZZER
+
+// #define USE_ERROR
 
 #define USBCON 1
 
@@ -9,6 +13,7 @@
 #include "SevenSegmentExtended.h"
 
 #include "digitalWriteFast.h"
+
 
 #define PIN_CLK 10 // define CLK pin (any digital pin)
 #define PIN_DIO 11 // define DIO pin (any digital pin)
@@ -59,12 +64,14 @@ enum power_states
 power_states current_power_state = OFF;
 power_states previous_power_state = OFF;
 
+#ifdef USE_ERROR
 enum error_states {
   NO_ERROR,
   NO_TEMPERATURE_SENSOR
 };
 
 error_states current_error_state = NO_ERROR;
+#endif
 
 int timer_minutes = 0;
 int timer_seconds = 0;
@@ -80,9 +87,18 @@ int fan_state = HIGH;
 // run setup code
 void setup()
 {
+  pinMode(FAN_BUZZER, OUTPUT);
+  
   display.begin();           // initializes the display
   display.setBacklight(100); // set the brightness to 100 %
   display.clear();
+  display.print("NIC");
+
+  for (int i = 0; i < 256; i++) {
+    analogWrite(FAN_BUZZER, i);
+    delay(10);
+  }
+
   display.print("----");
 
   delay(1000);
@@ -97,7 +113,6 @@ void setup()
   }
   int temp_switch_states[] = {digitalReadFast(S0), digitalReadFast(S1), digitalReadFast(S2), digitalReadFast(S3), digitalReadFast(S4), digitalReadFast(S5)};
   memcpy(previous_switch_states, temp_switch_states, sizeof(previous_switch_states));
-  pinMode(FAN_BUZZER, OUTPUT);
   pinMode(ZERO_CROSSING, INPUT_PULLUP);
   pinMode(TRIAC, OUTPUT);
   digitalWriteFast(TRIAC, HIGH);
@@ -127,20 +142,24 @@ void loop()
     digitalWriteFast(TRIAC, HIGH);
     to_fire = false;
   }
-  
+
+#ifdef USE_ERROR  
   int temp = analogRead(TEMPERATURE_SENSOR);
   if (temp > 800) {
     current_power_state = ERROR;
     current_error_state = NO_TEMPERATURE_SENSOR;
   }
-  
+#endif
+
   int current_switch_states[] = {digitalReadFast(S0), digitalReadFast(S1), digitalReadFast(S2), digitalReadFast(S3), digitalReadFast(S4), digitalReadFast(S5)};
   
 
+#ifdef USE_BUZZER
   if (millis() > last_tone)
   {
     digitalWriteFast(FAN_BUZZER, fan_state);
   }
+#endif
 
   if (current_power_state == TIMER_ON)
   {
@@ -158,10 +177,10 @@ void loop()
           timer_minutes = 0;
           timer_seconds = 0;
           current_power_state = OFF;
-          #ifdef __AVR_ATmega328P__
+#ifdef USE_BUZZER
           tone(FAN_BUZZER, 1000, 3000);
+#endif
           last_tone = millis() + 3000;
-          #endif
 #ifdef DEBUG
           Serial.println("Timer expired");
 #endif
@@ -190,14 +209,15 @@ void loop()
     return;
   }
 
+
+  if (millis() - last_switch_pressed < 250)
+  {
+    return;
+  }
+  
   if (memcmp(current_switch_states, all_high_switch_states, sizeof(current_switch_states)) == 0)
   {
     goto copy_switches;
-  }
-
-  if (millis() - last_switch_pressed < 100)
-  {
-    return;
   }
 
   digitalWriteFast(TRIAC, HIGH);
@@ -218,8 +238,10 @@ void loop()
 #endif
 
   #ifdef __AVR_ATmega328P__
+  #ifdef USE_BUZZER
   tone(FAN_BUZZER, 1000, 100);
   last_tone = millis() + 100;
+  #endif
   #endif
 
   switch (current_power_state)
@@ -361,6 +383,7 @@ timer_finished:
       display.print("SET");
       break;
 
+#ifdef USE_ERROR
     case ERROR:
       fan_state = LOW;
       switch (current_error_state) {
@@ -369,6 +392,7 @@ timer_finished:
           break;
       }
       break;
+#endif
     }
     previous_power_state = current_power_state;
   }
